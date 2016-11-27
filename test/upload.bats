@@ -1,6 +1,7 @@
 setup() {
   ip=$(docker inspect -f '{{ .NetworkSettings.IPAddress }}' caddy)
   rm -f /tmp/*release
+  rm -f /tmp/myresolv
 }
 
 @test "upload plugin is present" {
@@ -25,4 +26,25 @@ setup() {
 @test "head is forbidden" {
   run curl --fail -sS --head http://${ip}:2020/ 2>&1
   [[ $output =~ 405 ]]
+}
+
+@test "authenticated upload works" {
+  KEYID="zween"
+  SECRET="upload"
+  TIMESTAMP="$(date --utc +%s)"
+  TOKEN="ABC"
+
+  SIGNATURE="$(printf "${TIMESTAMP}${TOKEN}" |
+    openssl dgst -binary -sha256 -hmac "${SECRET}" |
+    openssl enc -base64)"
+
+  curl --fail -sS \
+    --header "Timestamp: \"${TIMESTAMP}\"" \
+    --header "Token: \"${TOKEN}\"" \
+    --header "Authorization: Signature keyId=\"${KEYID}\",signature=\"${SIGNATURE}\"" \
+    -T /etc/resolv.conf http://${ip}:2020/authenticated_uploads/myresolv
+
+  curl --fail -sS -o /tmp/myresolv http://${ip}:2020/myresolv
+  run cmp /tmp/myresolv /etc/resolv.conf
+  [[ $status -eq 0 ]]
 }
